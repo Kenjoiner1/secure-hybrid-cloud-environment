@@ -252,10 +252,10 @@ The project is being developed in stages.
 
 ## Phase 2 — Enterprise Infrastructure
 
-* [ ] Virtual Network
-* [ ] Subnets
-* [ ] Network Security Groups
-* [ ] Windows Server VM
+* [x] Virtual Network
+* [x] Subnets
+* [x] Network Security Groups
+* [x] Windows Server VM
 * [ ] Linux VM
 * [ ] Active Directory
 * [ ] DNS
