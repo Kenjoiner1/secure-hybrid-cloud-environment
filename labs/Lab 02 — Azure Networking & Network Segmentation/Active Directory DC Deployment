@@ -1,0 +1,629 @@
+# DC01 — Active Directory Domain Controller Deployment
+
+## Overview
+
+As part of Lab 02 — Azure Networking, a Windows Server 2025 virtual machine was deployed and configured as the primary Active Directory Domain Controller for the Secure Hybrid Cloud Environment.
+
+The objective was to build a functional enterprise-style Windows domain while maintaining network segmentation and restricting direct public access to infrastructure servers.
+
+---
+
+## Environment
+
+| Component          | Configuration                                 |
+| ------------------ | --------------------------------------------- |
+| Cloud Platform     | Microsoft Azure                               |
+| Region             | East US                                       |
+| Resource Group     | `rg-securecloud-compute`                      |
+| Virtual Network    | `vnet-securecloud`                            |
+| VNet Address Space | `10.10.0.0/16`                                |
+| Server Subnet      | `snet-servers`                                |
+| Server Subnet CIDR | `10.10.10.0/24`                               |
+| Domain Controller  | `DC01`                                        |
+| Operating System   | Windows Server 2025 Datacenter: Azure Edition |
+| Private IP         | `10.10.10.4`                                  |
+| Public IP          | None                                          |
+| Domain             | `corp.securecloud.local`                      |
+| Roles              | Active Directory Domain Services, DNS         |
+
+---
+
+# 1. DC01 Network Configuration
+
+DC01 was deployed into the dedicated server subnet:
+
+```text
+snet-servers
+10.10.10.0/24
+```
+
+The virtual machine was intentionally deployed **without a public IP address**.
+
+This prevents direct Internet-based administrative access to the domain controller.
+
+Administrative access is performed through the management server:
+
+```text
+Administrator Workstation
+        |
+        | RDP
+        v
+     MGMT01
+  10.10.1.x
+        |
+        | RDP / Management
+        v
+     DC01
+  10.10.10.4
+```
+
+This design separates the management plane from the server infrastructure.
+
+---
+
+# 2. Network Security Group
+
+DC01 is protected by the server subnet Network Security Group:
+
+```text
+nsg-servers
+```
+
+Management traffic was restricted to the management subnet.
+
+### Configured Rules
+
+| Priority | Rule                   | Source         | Destination Port | Protocol | Action |
+| -------: | ---------------------- | -------------- | ---------------: | -------- | ------ |
+|      100 | Allow-RDP-Management   | `10.10.1.0/24` |             3389 | TCP      | Allow  |
+|      110 | Allow-WinRM-Management | `10.10.1.0/24` |             5985 | TCP      | Allow  |
+
+No Internet-to-DC01 RDP rule was created.
+
+This follows the principle of restricting administrative access to a controlled management network.
+
+---
+
+# 3. Installing Active Directory Domain Services
+
+The Active Directory Domain Services role was installed on DC01.
+
+PowerShell was used to verify the installed role:
+
+```powershell
+Get-WindowsFeature AD-Domain-Services
+```
+
+The role installation completed successfully.
+
+---
+
+# 4. Domain Controller Promotion
+
+DC01 was promoted to a new forest/domain:
+
+```text
+corp.securecloud.local
+```
+
+The server was configured as the first domain controller for the environment.
+
+During the promotion process, the server automatically restarted after the domain controller configuration completed.
+
+---
+
+# 5. Promotion Error Encountered
+
+During the initial promotion attempt, the following error was encountered:
+
+```text
+Verification of the prerequisites for Domain Controller promotion have failed.
+Role change is in progress.
+```
+
+### Initial Assessment
+
+The error occurred while the AD DS role change was still being processed.
+
+The system had not completed the required role installation/configuration process before the promotion attempt was evaluated.
+
+### Troubleshooting
+
+The following actions were performed:
+
+1. Allowed the AD DS role installation process to complete.
+2. Waited for the pending role change to finish.
+3. Restarted/rebooted DC01.
+4. Re-ran the domain controller promotion process.
+5. Confirmed the promotion completed successfully.
+
+The subsequent promotion completed without the previous error.
+
+### Lesson Learned
+
+When installing AD DS and immediately promoting a server, the underlying Windows role configuration may still be processing.
+
+If promotion reports that a role change is in progress, verify that the role installation has completed before attempting promotion again.
+
+---
+
+# 6. Domain Controller Verification
+
+After promotion, the following commands were used to verify Active Directory functionality.
+
+### Verify the Active Directory Domain
+
+```powershell
+Get-ADDomain
+```
+
+Expected domain:
+
+```text
+corp.securecloud.local
+```
+
+### Verify the Domain Controller
+
+```powershell
+Get-ADDomainController
+```
+
+DC01 was returned as the active domain controller.
+
+### Verify Required Services
+
+```powershell
+Get-Service NTDS,DNS,Netlogon
+```
+
+The required services were confirmed to be running.
+
+### Verify SYSVOL and NETLOGON
+
+The SYSVOL and NETLOGON shares were verified to ensure the domain controller had completed initialization successfully.
+
+### Run DC Diagnostics
+
+```powershell
+dcdiag
+```
+
+The diagnostic checks completed without significant errors.
+
+---
+
+# 7. DNS Configuration and Verification
+
+Active Directory Domain Services was installed with integrated DNS.
+
+DC01's IPv4 address:
+
+```text
+10.10.10.4
+```
+
+The DNS client configuration showed the local loopback address:
+
+```text
+127.0.0.1
+```
+
+The IPv6 loopback address was also observed:
+
+```text
+::1
+```
+
+These addresses indicate that DC01 is resolving DNS queries through its own DNS service.
+
+The local DNS configuration was not unnecessarily modified after successful domain resolution was confirmed.
+
+---
+
+# 8. DNS Troubleshooting
+
+### Test 1 — Domain Resolution
+
+```powershell
+nslookup corp.securecloud.local
+```
+
+Result:
+
+```text
+Name:    corp.securecloud.local
+Address: 10.10.10.4
+```
+
+This confirmed that the Active Directory domain could be resolved through DNS.
+
+### Test 2 — Domain Controller Resolution
+
+```powershell
+nslookup dc01.corp.securecloud.local
+```
+
+Result:
+
+```text
+Name:    dc01.corp.securecloud.local
+Address: 10.10.10.4
+```
+
+This confirmed that the domain controller's fully qualified domain name resolved correctly.
+
+### `Unknown / ::1` Observation
+
+`nslookup` reported:
+
+```text
+Server:  Unknown
+Address: ::1
+```
+
+Although this initially appeared concerning, the actual DNS lookup successfully returned:
+
+```text
+corp.securecloud.local
+10.10.10.4
+```
+
+Therefore, the `Unknown / ::1` output was not treated as a DNS failure.
+
+---
+
+# 9. DNS Connectivity Test
+
+DNS connectivity was tested directly against DC01:
+
+```powershell
+Test-NetConnection 10.10.10.4 -Port 53
+```
+
+Result:
+
+```text
+TcpTestSucceeded : True
+```
+
+This confirmed TCP connectivity to the DNS service.
+
+---
+
+# 10. Management Server Deployment
+
+A separate Windows Server VM was deployed as the management server:
+
+```text
+MGMT01
+```
+
+MGMT01 was placed in:
+
+```text
+snet-management
+10.10.1.0/24
+```
+
+The management server provides a controlled administrative path to infrastructure servers.
+
+Architecture:
+
+```text
+Your Workstation
+       |
+       | RDP
+       v
+    MGMT01
+10.10.1.x
+       |
+       | RDP / WinRM
+       v
+     DC01
+10.10.10.4
+```
+
+This eliminates the need for a public IP on DC01.
+
+---
+
+# 11. MGMT01 DNS Configuration
+
+Before joining MGMT01 to the domain, DNS was configured to use the domain controller.
+
+MGMT01 was configured to use:
+
+```text
+10.10.10.4
+```
+
+as its DNS server.
+
+This is necessary because Active Directory relies heavily on DNS service records to locate domain controllers and other domain services.
+
+---
+
+# 12. MGMT01 DNS Verification
+
+From MGMT01:
+
+```powershell
+nslookup corp.securecloud.local
+```
+
+The domain resolved to:
+
+```text
+10.10.10.4
+```
+
+The domain controller was also tested:
+
+```powershell
+nslookup dc01.corp.securecloud.local
+```
+
+The result resolved to:
+
+```text
+10.10.10.4
+```
+
+DNS connectivity was verified:
+
+```powershell
+Test-NetConnection 10.10.10.4 -Port 53
+```
+
+Result:
+
+```text
+TcpTestSucceeded : True
+```
+
+LDAP connectivity was also tested:
+
+```powershell
+Test-NetConnection 10.10.10.4 -Port 389
+```
+
+Result:
+
+```text
+TcpTestSucceeded : True
+```
+
+---
+
+# 13. Domain Join
+
+After DNS and network connectivity were confirmed, MGMT01 was joined to:
+
+```text
+corp.securecloud.local
+```
+
+PowerShell command:
+
+```powershell
+Add-Computer -DomainName "corp.securecloud.local" -Credential "CORP\Administrator" -Restart
+```
+
+The system restarted automatically after the domain join.
+
+---
+
+# 14. Credential Troubleshooting
+
+An initial domain-join authentication failure occurred because the distinction between local and domain credentials needed to be established.
+
+### Local Account
+
+The following format represents a local Windows account:
+
+```text
+.\username
+```
+
+This authenticates against the local computer.
+
+### Domain Account
+
+The following format represents an Active Directory account:
+
+```text
+CORP\Administrator
+```
+
+or:
+
+```text
+Administrator@corp.securecloud.local
+```
+
+These credentials authenticate against the Active Directory domain.
+
+### Resolution
+
+The correct domain credentials were identified and used for the domain join.
+
+MGMT01 successfully restarted after joining the domain.
+
+---
+
+# 15. Domain Join Validation
+
+After restarting MGMT01, the domain membership can be validated with:
+
+```powershell
+whoami
+```
+
+and:
+
+```powershell
+(Get-CimInstance Win32_ComputerSystem).Domain
+```
+
+Expected domain:
+
+```text
+corp.securecloud.local
+```
+
+The secure channel can be validated with:
+
+```powershell
+Test-ComputerSecureChannel
+```
+
+Expected result:
+
+```text
+True
+```
+
+---
+
+# 16. Final Architecture
+
+At this stage, the environment consists of a segmented Azure network with centralized identity and DNS services.
+
+```text
+                         AZURE
+                           |
+                 vnet-securecloud
+                    10.10.0.0/16
+                           |
+          ┌────────────────┴────────────────┐
+          |                                 |
+  Management Subnet                    Server Subnet
+   10.10.1.0/24                       10.10.10.0/24
+          |                                 |
+       MGMT01                              DC01
+     10.10.1.x                          10.10.10.4
+     Public IP                           No Public IP
+          |                                 |
+          | RDP / WinRM                     |
+          └─────────────────────────────────┘
+                                            |
+                                  Active Directory
+                                            |
+                                  corp.securecloud.local
+                                            |
+                                           DNS
+```
+
+---
+
+# 17. Security Controls Demonstrated
+
+This deployment demonstrates several enterprise security principles:
+
+* Network segmentation
+* Dedicated management subnet
+* Dedicated server subnet
+* No public IP on the domain controller
+* Restricted administrative access
+* NSG-based access control
+* Centralized identity using Active Directory
+* AD-integrated DNS
+* Controlled management path
+* Separation of management and server workloads
+* Verification of network and directory services
+
+---
+
+# 18. Troubleshooting Summary
+
+| Issue                                     | Cause/Observation                       | Resolution                                                 |
+| ----------------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| AD promotion prerequisite failure         | AD DS role change was still in progress | Waited for role configuration/reboot and retried promotion |
+| `nslookup` showed `Unknown / ::1`         | DNS client was using IPv6 loopback      | Confirmed actual DNS records resolved correctly            |
+| Domain resolution concern                 | Needed to verify AD-integrated DNS      | `nslookup` confirmed domain → `10.10.10.4`                 |
+| DNS connectivity                          | Required validation before domain join  | TCP 53 test returned `True`                                |
+| MGMT01 domain join authentication failure | Local vs. domain credentials confusion  | Used domain credentials instead of `.\username`            |
+| MGMT01 domain join                        | DNS needed to locate DC01               | Configured MGMT01 DNS to `10.10.10.4`                      |
+| Direct DC01 administration                | DC01 had no public IP                   | Management performed through MGMT01                        |
+
+---
+
+# 19. Skills Demonstrated
+
+### Azure
+
+* Azure Virtual Machines
+* Azure Virtual Networks
+* Subnet segmentation
+* Network Security Groups
+* Private IP addressing
+* Management/server network separation
+
+### Windows Server
+
+* Windows Server 2025
+* Active Directory Domain Services
+* Domain Controller deployment
+* DNS
+* Domain joining
+* Windows Server troubleshooting
+* PowerShell administration
+
+### Active Directory
+
+* Domain creation
+* Domain Controller promotion
+* AD-integrated DNS
+* Domain membership
+* Secure channel validation
+* Administrative authentication
+
+### Troubleshooting
+
+* AD DS promotion troubleshooting
+* DNS troubleshooting
+* Network connectivity testing
+* Authentication troubleshooting
+* Domain join troubleshooting
+* Service validation
+* `dcdiag`
+* `nslookup`
+* `Test-NetConnection`
+
+---
+
+# 20. Current Status
+
+| Component                   | Status   |
+| --------------------------- | -------- |
+| Azure VNet                  | Complete |
+| Management subnet           | Complete |
+| Server subnet               | Complete |
+| NSGs                        | Complete |
+| DC01                        | Complete |
+| AD DS                       | Complete |
+| Domain Controller promotion | Complete |
+| DNS                         | Complete |
+| DNS validation              | Complete |
+| MGMT01                      | Complete |
+| MGMT01 DNS configuration    | Complete |
+| MGMT01 domain join          | Complete |
+| OU structure                | Next     |
+| AD security groups          | Next     |
+| Test users                  | Next     |
+| Group Policy                | Next     |
+| Linux VM                    | Planned  |
+| Cross-platform validation   | Planned  |
+
+---
+
+## Key Takeaways
+
+This portion of the lab established the identity and management foundation for the Secure Hybrid Cloud Environment.
+
+The most important architectural decision was keeping the domain controller on a private server subnet with **no public IP**, while using MGMT01 as the controlled management entry point.
+
+DNS was also critical to the implementation. Rather than treating DNS as an isolated service, the lab demonstrated its role in Active Directory domain discovery, domain joining, and communication between management and infrastructure systems.
+
+The troubleshooting performed during deployment also reinforced the importance of validating underlying Windows roles, DNS resolution, network connectivity, and authentication before attempting subsequent configuration steps.

@@ -28,8 +28,8 @@ This lab builds upon **Lab 01 — Azure Resource Organization, RBAC & IAM** and 
                     Azure
                       │
               ┌───────┴────────┐
-              │ vnet-securecloud │
-              │   10.10.0.0/16  │
+              │vnet-securecloud│
+              │  10.10.0.0/16  │
               └───────┬────────┘
                       │
        ┌──────────────┼──────────────┐
