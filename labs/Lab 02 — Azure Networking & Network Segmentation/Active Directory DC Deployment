@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # DC01 — Active Directory Domain Controller Deployment
 
 ## Overview
@@ -627,3 +628,6 @@ The most important architectural decision was keeping the domain controller on a
 DNS was also critical to the implementation. Rather than treating DNS as an isolated service, the lab demonstrated its role in Active Directory domain discovery, domain joining, and communication between management and infrastructure systems.
 
 The troubleshooting performed during deployment also reinforced the importance of validating underlying Windows roles, DNS resolution, network connectivity, and authentication before attempting subsequent configuration steps.
+=======
+
+>>>>>>> f255c0c6e97b7cbd64ffa8966d48d8778ddc3101
