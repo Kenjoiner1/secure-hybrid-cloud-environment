@@ -265,6 +265,51 @@ The project is being developed in stages.
 
 **Primary Skill:** Systems Administration
 
+## Active Directory & Domain Controller
+
+A Windows Server 2025 VM was deployed as `DC01` within the dedicated server subnet and promoted to the first Domain Controller for the lab domain:
+
+```text
+corp.securecloud.local
+```
+
+DC01 uses the private address:
+
+```text
+10.10.10.4
+```
+
+and does **not** have a public IP.
+
+Active Directory Domain Services and DNS were configured and validated using PowerShell, `nslookup`, `Test-NetConnection`, and `dcdiag`.
+
+A dedicated management server, `MGMT01`, was deployed in the management subnet and configured to use DC01 for DNS. MGMT01 was subsequently joined to the domain.
+
+### Validation Performed
+
+* AD DS role installation
+* Domain Controller promotion
+* Active Directory domain validation
+* DNS resolution
+* DC01 FQDN resolution
+* DNS connectivity on TCP 53
+* LDAP connectivity on TCP 389
+* Management-to-server RDP connectivity
+* MGMT01 domain join
+* Domain membership validation
+* Secure channel validation
+
+### Troubleshooting
+
+During deployment, an AD DS promotion error indicated that a role change was still in progress. The issue was resolved by allowing the role configuration to complete, restarting DC01, and retrying the promotion.
+
+DNS troubleshooting also identified `Unknown / ::1` in `nslookup`. The lookup itself successfully resolved the domain and DC01 to `10.10.10.4`, confirming that DNS was functioning correctly.
+
+An initial domain join authentication failure was also encountered due to the distinction between local credentials (`.\username`) and domain credentials (`CORP\Administrator`). The correct domain credentials were subsequently used and MGMT01 successfully joined the domain.
+
+**Detailed deployment steps and troubleshooting:**
+`[DC01 Active Directory Deployment & Troubleshooting](./dc01-ad-deployment.md)`
+
 ---
 
 ## Phase 3 — Azure Security
